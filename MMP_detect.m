@@ -4,7 +4,7 @@
 %powState     为同时工作的三个工作状态
 
 
-function [happen, start_end] = MMP_detect( maindata ,win_width, level, powState)
+function [start_end, events] = MMP_detect( maindata ,win_width, level, powState)
     %---------------利用窗口滑动，求取方差，利用方差来实现事件的判断---------------------
     %初始化window矩阵%定义一个窗口矩阵
     maindata = medfilt1(maindata,win_width);
@@ -35,92 +35,73 @@ function [happen, start_end] = MMP_detect( maindata ,win_width, level, powState)
         end
 
     end
+    
+    diff_data = diff(maindata);
+    for i = 1:length( diff_data  )
+        if( abs(diff_data(i)) < 20  )
+            diff_data(i) = 0;
+        end
+    end
+    %%%
+    for i = 1:length(diff_data)
+       if( (diff_data(i)~= 0) )
+           j = i;
+            while( diff_data(j)~= 0 )
+                j = j+1;
+            end
+       end
+       
+            if( happen(j) == 0 )
+                happen(j) = maindata(j);
+            end  
+    end
+    
+    for i = 1:1:length(happen)-1
+        if( happen(i)~=0 )
+            if( happen(i+1)~= 0)
+                happen(i)= 0;
+            end
+        end
+    end
+    
+    %清除小于一定值的事件判断
+    for i = 1:1:length(happen)
+        if( happen(i) ~= 0 )
+            down = max(1, i-3);
+            up = min(i+3, length(happen));
+            if( abs(maindata(up) - maindata(down) )< 10 )
+                happen(i) =0;
+            end
+        end
+    end
 
-    %---------------------利用差分进行筛选----------------------------------
+    %---------------------利用差分进行筛选-----------------------------------------
     
     %得到数据的差分形式，利用多步差分得到一个相对稳定的差分数据
-    maindata_diff = 0.8 * diff_steps(maindata, 1) + 0.2 * diff_steps(maindata, 2); %+ 0.3 * diff_steps(maindata, 3);
-    powerLevel = zeros(powState,1); %设置同时的上升沿个数最大为powState，即功率档位同时工作的个数
-    checkRecord = zeros(powState,1); %记录上升沿的下标位置
-    flag = 0;%上升沿记录标志，0为无，>0表示有上升沿
+    maindata_diff = 0.5 * diff_steps(maindata, 1) + 0.2 * diff_steps(maindata, 2) + 0.3 * diff_steps(maindata, 3);
+%     powerLevel = zeros(powState,1); %设置同时的上升沿个数最大为powState，即功率档位同时工作的个数
+%     checkRecord = zeros(powState,1); %记录上升沿的下标位置
+%     flag = 0;%上升沿记录标志，0为无，>0表示有上升沿
     check = find(happen ~= 0); %check 为happen数据中不为零的下标；
-    start_end = zeros(length(check), 2); %创建开启关闭的对应表
+    list_up = zeros(length(check), 6);
+    list_down = zeros(length(check), 6);
+    
     
     for i = 1 : length(check)
         index = check(i);
-        if(maindata_diff(index) > 0) %差分大于零，判断为上升沿 
-            p_index = find(powerLevel == 0, 1); 
-            if(~isempty(p_index)) %判断还能不能有上升沿
-                powerLevel(p_index) = maindata_diff(index);
-                checkRecord(p_index) = index;
-                flag = flag + 1;
-            else
-                happen(index) = 0;
-            end
+        if(maindata_diff(index) > 0) %差分大于零，判断为上升沿
+            list_up(i,:) = record_up(maindata, index, 5);
         elseif(maindata_diff(index) < 0) %判断为下降沿
-            if(flag > 0)
-                if(isturndown(index, maindata)) %判断后续状态是否为完全关闭状态，是的话，则消除所有上升沿
-                    s_index = find(start_end(:,1)==0, 1);
-                    p_index = find(powerLevel ~= 0);
-                    start_end([s_index : s_index + length(p_index) - 1], :) = [checkRecord(p_index), index * ones(length(p_index),1)];
-                    
-                    powerLevel(p_index) = 0;
-                    checkRecord(p_index) = 0;
-                    flag = 0;
-                else %匹配对应的下降沿
-                    cmpLevel = powerLevel + maindata_diff(index) * ones(powState,1);
-                    varLevel = var(maindata_diff(max(index-9, 1) : index));
-                    cmpResult = (abs(cmpLevel) < 1.3 * varLevel ^ 0.5);
-                    p_index = find(cmpResult == 1,1);
-                    if(~isempty(p_index))
-                        flag = flag - 1;
-                        s_index = find(start_end(:,1)==0, 1);
-                        start_end(s_index, :) = [checkRecord(p_index) index];
-                        checkRecord(p_index) = 0;
-                        powerLevel(p_index) = 0;
-                    else
-                        happen(index) = 0;
-                    end
-                end
-            else
-                happen(index) = 0;
-            end
+            list_down(i,:) = record_down(maindata, index, 5);
         else
             happen(index) = 0;
         end
     end
     
-    %将没有消除的上升沿记录下来
-    p_index = find(powerLevel ~= 0);
-    if(~isempty(p_index))
-        s_index = find(start_end(:,1)==0, 1);
-        start_end([s_index : s_index + length(p_index) - 1], :) = [checkRecord(p_index), zeros(length(p_index),1)];
-    end
+    list_up(list_up(:,1) == 0,:) = [];
+    list_down(list_down(:,1) == 0,:) = [];
     
-    s_index = find(start_end(:,1)==0);
-    start_end(s_index, :) = [];
-%plot(maindata,'-b');
-%hold on 
-  plot(happen,'r');
+    start_end = checkRecord(list_up, list_down, powState);
+    events = eventExtract(maindata, start_end, list_up, list_down);
 end
 
-function answer = isturndown(index, maindata)
-    
-len = length(maindata);
-if(index == len)
-    if(maindata(index)<2)
-        answer = 1;
-    else
-        answer = 0;
-    end
-else 
-    later_mean = mean(maindata(index + 1 : min(len, index + 10)));
-    later_var = var(maindata(index + 1 : min(len, index + 10)));
-    if(later_mean + later_var^0.5 < 3)
-        answer = 1;
-    else 
-        answer = 0;
-    end
-end
-
-end
