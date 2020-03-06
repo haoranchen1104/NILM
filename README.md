@@ -10,13 +10,14 @@ Simulate by Matlab.
 Each `data*.mat` contains two cells :`power`, `t`.  
 `power` contains all the power load records of each electric appliance in the corresponding `label*.txt`. `t` records the timelines of power load.  
 
-### src
+### Directories  
+##### src
 
 In src directory, all process functions can be found here.
 
-### data
+##### data
 
-Related data orignates from `data3.mat` and `data4.mat`. This project mainly focus on `data3.mat`.
+Related data orignates from `data3.mat` and `data4.mat`. This project mainly focuses on `data3.mat`.
 
 
 
